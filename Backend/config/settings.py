@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -89,3 +90,47 @@ MEDIA_ROOT = BASE_DIR / "uploads"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 APPEND_SLASH = False
+
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@example.com")
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+
+ADMIN_APPROVAL_BASE_URL = os.getenv(
+    "ADMIN_APPROVAL_BASE_URL", "http://localhost:8000/admin/requests/approve"
+)
+ADMIN_EMAIL_CONFIG_PATH = Path(
+    os.getenv("ADMIN_EMAIL_CONFIG_PATH", PROJECT_ROOT / "Backend" / "config" / "admin_email.json")
+)
+ADMIN_APPROVER_EMAIL = os.getenv("ADMIN_APPROVER_EMAIL")
+
+if ADMIN_EMAIL_CONFIG_PATH.exists():
+    try:
+        with ADMIN_EMAIL_CONFIG_PATH.open("r", encoding="utf-8") as handle:
+            config_data = json.load(handle)
+    except json.JSONDecodeError:
+        config_data = {}
+
+    EMAIL_HOST = config_data.get("host", EMAIL_HOST)
+    EMAIL_PORT = int(config_data.get("port", EMAIL_PORT))
+    use_tls_value = config_data.get("use_tls", EMAIL_USE_TLS)
+    if isinstance(use_tls_value, str):
+        EMAIL_USE_TLS = use_tls_value.lower() == "true"
+    else:
+        EMAIL_USE_TLS = bool(use_tls_value)
+    EMAIL_HOST_USER = config_data.get("email", EMAIL_HOST_USER) or ""
+    EMAIL_HOST_PASSWORD = config_data.get("app_password", EMAIL_HOST_PASSWORD) or ""
+    ADMIN_APPROVER_EMAIL = (
+        config_data.get("approver_email")
+        or ADMIN_APPROVER_EMAIL
+        or (EMAIL_HOST_USER or None)
+    )
+    DEFAULT_FROM_EMAIL = config_data.get("from_email", DEFAULT_FROM_EMAIL)
+
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
