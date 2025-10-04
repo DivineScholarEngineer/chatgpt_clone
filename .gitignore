@@ -7,3 +7,6 @@ uploads/
 .gpt_cache/
 .DS_Store
 staticfiles/
+Backend/db.sqlite3
+Backend/uploads/
+Backend/staticfiles/

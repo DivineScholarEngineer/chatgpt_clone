@@ -1,6 +1,8 @@
 # ChatGPT Clone
 
-A minimal self-hosted ChatGPT-style interface backed by Django, SQLite, and an optional Hugging Face transformers text-generation pipeline. The project includes:
+A minimal self-hosted ChatGPT-style interface backed by Django, SQLite, and an optional Hugging Face transformers text-generation pipeline. The codebase is split into dedicated **Backend** and **Frontend** folders to keep the Django server concerns separate from the static UI assets.
+
+The project includes:
 
 - ✅ A ChatGPT-inspired web UI with conversation history, file uploads, and attachment previews.
 - ✅ A Django backend that stores conversations/messages/attachments in SQLite.
@@ -16,17 +18,17 @@ A minimal self-hosted ChatGPT-style interface backed by Django, SQLite, and an o
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r Backend/requirements.txt
 ```
 
 ### 2. Apply migrations and launch the development server
 
 ```bash
-python manage.py migrate
-python manage.py runserver
+python Backend/manage.py migrate
+python Backend/manage.py runserver
 ```
 
-The UI is served at [http://localhost:8000](http://localhost:8000). Conversations are persisted to `db.sqlite3` in the project root.
+The UI is served at [http://localhost:8000](http://localhost:8000). Conversations are persisted to `db.sqlite3` inside the `Backend/` directory.
 
 ### 3. Configure a model (optional)
 
@@ -55,12 +57,12 @@ The first request will lazily download and load the model.
 
 ### Fine-tuning with LoRA
 
-The `scripts/train_lora.py` module can fine-tune `openai/gpt-oss-20b` (or any compatible causal LM) using the Alpaca-style dataset specified in the prompt.
+The `Backend/scripts/train_lora.py` module can fine-tune `openai/gpt-oss-20b` (or any compatible causal LM) using the Alpaca-style dataset specified in the prompt.
 
 Example invocation mirroring the original parameters:
 
 ```bash
-python scripts/train_lora.py \
+python Backend/scripts/train_lora.py \
   --model-name openai/gpt-oss-20b \
   --dataset tatsu-lab/alpaca \
   --load-in-4bit \
@@ -73,35 +75,24 @@ python scripts/train_lora.py \
 
 The resulting LoRA adapter weights and tokenizer are stored in `gpt-oss-20b-finetuned/lora-adapter`.
 
-## Project structure
+## Repository layout
 
 ```
-app/
-  admin.py        # Django admin registrations
-  apps.py         # App configuration
-  generation.py   # Text generation helpers
-  models.py       # Django ORM models
-  urls.py         # Application URL routes
-  views.py        # HTML + JSON endpoints
-config/
-  settings.py     # Django project settings
-  urls.py         # URL configuration
-  wsgi.py         # WSGI entrypoint
-  asgi.py         # ASGI entrypoint
-scripts/
-  train_lora.py   # LoRA fine-tuning script
-static/
-  app.js          # Frontend behaviour
-  style.css       # ChatGPT-inspired styling
-templates/
-  index.html      # UI shell
-uploads/           # Stored files (gitignored)
-db.sqlite3         # SQLite database (created at runtime)
+Backend/
+  app/            # Django application with models, views, and URLs
+  config/         # Django project configuration
+  manage.py       # Django management entry point
+  requirements.txt# Python dependencies for the backend
+  scripts/        # Utilities such as LoRA training
+Frontend/
+  static/         # JavaScript, CSS, and other static assets
+  templates/      # Django template files (served by the backend)
+README.md         # Project overview and instructions
 ```
 
 ## Requirements
 
-See [`requirements.txt`](requirements.txt) for the complete list. At a minimum you will need:
+See [`Backend/requirements.txt`](Backend/requirements.txt) for the complete list. At a minimum you will need:
 
 - Django
 - (Optional) transformers, accelerate, bitsandbytes, datasets, peft for model loading and fine-tuning
