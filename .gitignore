@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+chat_history.db
+uploads/
+.gpt_cache/
+.DS_Store

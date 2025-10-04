@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChatGPT Clone</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="app-container">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <button id="new-chat" class="btn">+ New chat</button>
+        </div>
+        <div id="conversation-list" class="conversation-list"></div>
+      </aside>
+      <main class="chat-area">
+        <header class="chat-header">
+          <h1>ChatGPT Clone</h1>
+        </header>
+        <section id="messages" class="messages"></section>
+        <footer class="composer">
+          <div class="attachment-bar" id="attachment-bar"></div>
+          <div class="composer-inner">
+            <label class="upload-button" for="file-input">
+              <span>📎</span>
+              <input id="file-input" type="file" multiple hidden />
+            </label>
+            <textarea id="message-input" placeholder="Send a message" rows="1"></textarea>
+            <button id="send-button" class="btn primary">Send</button>
+          </div>
+        </footer>
+      </main>
+    </div>
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>
