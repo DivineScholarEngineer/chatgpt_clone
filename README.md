@@ -1,10 +1,9 @@
 # ChatGPT Clone
 
-A minimal self-hosted ChatGPT-style interface backed by FastAPI, SQLite, and a Hugging Face
-transformers text-generation pipeline. The project includes:
+A minimal self-hosted ChatGPT-style interface backed by Django, SQLite, and an optional Hugging Face transformers text-generation pipeline. The project includes:
 
 - ✅ A ChatGPT-inspired web UI with conversation history, file uploads, and attachment previews.
-- ✅ A FastAPI backend that stores conversations/messages/attachments in SQLite.
+- ✅ A Django backend that stores conversations/messages/attachments in SQLite.
 - ✅ REST endpoints for chatting, managing conversations, and uploading or deleting attachments.
 - ✅ A LoRA training script for `openai/gpt-oss-20b` that mirrors the configuration provided in the prompt but is fully configurable via CLI flags.
 
@@ -20,13 +19,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Launch the development server
+### 2. Apply migrations and launch the development server
 
 ```bash
-uvicorn app.main:app --reload
+python manage.py migrate
+python manage.py runserver
 ```
 
-The UI is served at [http://localhost:8000](http://localhost:8000). Conversations are persisted to `chat_history.db` in the project root.
+The UI is served at [http://localhost:8000](http://localhost:8000). Conversations are persisted to `db.sqlite3` in the project root.
 
 ### 3. Configure a model (optional)
 
@@ -77,29 +77,33 @@ The resulting LoRA adapter weights and tokenizer are stored in `gpt-oss-20b-fine
 
 ```
 app/
-  main.py          # FastAPI app and REST endpoints
-  database.py      # SQLAlchemy engine / session setup
-  models.py        # ORM models for conversations, messages, attachments
-  schemas.py       # Pydantic response/request schemas
+  admin.py        # Django admin registrations
+  apps.py         # App configuration
+  generation.py   # Text generation helpers
+  models.py       # Django ORM models
+  urls.py         # Application URL routes
+  views.py        # HTML + JSON endpoints
+config/
+  settings.py     # Django project settings
+  urls.py         # URL configuration
+  wsgi.py         # WSGI entrypoint
+  asgi.py         # ASGI entrypoint
 scripts/
-  train_lora.py    # LoRA fine-tuning script
+  train_lora.py   # LoRA fine-tuning script
 static/
-  app.js           # Frontend behaviour
-  style.css        # ChatGPT-inspired styling
+  app.js          # Frontend behaviour
+  style.css       # ChatGPT-inspired styling
 templates/
-  index.html       # UI shell
+  index.html      # UI shell
 uploads/           # Stored files (gitignored)
-chat_history.db    # SQLite database (created at runtime)
+db.sqlite3         # SQLite database (created at runtime)
 ```
 
 ## Requirements
 
 See [`requirements.txt`](requirements.txt) for the complete list. At a minimum you will need:
 
-- FastAPI + Uvicorn
-- SQLAlchemy
-- Pydantic
-- python-multipart (for file uploads)
+- Django
 - (Optional) transformers, accelerate, bitsandbytes, datasets, peft for model loading and fine-tuning
 
 Enjoy customising the clone! Feel free to adapt the UI, hook up a different model, or extend the database schema as needed.
