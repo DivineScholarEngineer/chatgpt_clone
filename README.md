@@ -28,6 +28,8 @@ python Backend/manage.py migrate
 python Backend/manage.py runserver
 ```
 
+> **Tip:** `python Backend/manage.py runserver` will automatically install the dependencies listed in `Backend/requirements.txt` if they are missing, so you can jump straight into development with a single command.
+
 The UI is served at [http://localhost:8000](http://localhost:8000). Conversations are persisted to `db.sqlite3` inside the `Backend/` directory.
 
 ### 3. Configure a model (optional)
