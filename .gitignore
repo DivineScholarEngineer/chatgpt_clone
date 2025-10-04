@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 chat_history.db
+db.sqlite3
 uploads/
 .gpt_cache/
 .DS_Store
+staticfiles/

@@ -1,41 +1,51 @@
-from datetime import datetime
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import relationship
+from __future__ import annotations
 
-from .database import Base
+from django.db import models
 
 
-class Conversation(Base):
-    __tablename__ = "conversations"
+class Conversation(models.Model):
+    title = models.CharField(max_length=200, default="New chat")
+    created_at = models.DateTimeField(auto_now_add=True)
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(200), nullable=False, default="New chat")
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    class Meta:
+        ordering = ["-created_at"]
 
-    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
-
-
-class Message(Base):
-    __tablename__ = "messages"
-
-    id = Column(Integer, primary_key=True, index=True)
-    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
-    role = Column(String(20), nullable=False)
-    content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    conversation = relationship("Conversation", back_populates="messages")
-    attachments = relationship("Attachment", back_populates="message", cascade="all, delete-orphan")
+    def __str__(self) -> str:  # pragma: no cover - human readable representation
+        return f"Conversation #{self.pk}: {self.title}"
 
 
-class Attachment(Base):
-    __tablename__ = "attachments"
+class Message(models.Model):
+    conversation = models.ForeignKey(
+        Conversation,
+        related_name="messages",
+        on_delete=models.CASCADE,
+    )
+    role = models.CharField(max_length=20)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
-    id = Column(Integer, primary_key=True, index=True)
-    message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
-    filename = Column(String(255), nullable=False)
-    original_name = Column(String(255), nullable=False)
-    mime_type = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    class Meta:
+        ordering = ["created_at", "id"]
 
-    message = relationship("Message", back_populates="attachments")
+    def __str__(self) -> str:  # pragma: no cover - human readable representation
+        return f"{self.role} message #{self.pk}"
+
+
+class Attachment(models.Model):
+    message = models.ForeignKey(
+        Message,
+        related_name="attachments",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    filename = models.CharField(max_length=255)
+    original_name = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:  # pragma: no cover - human readable representation
+        return self.original_name
