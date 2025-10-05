@@ -1,0 +1,9 @@
+{
+  "host": "smtp.gmail.com",
+  "port": 587,
+  "use_tls": true,
+  "email": "sammaretia@gmail.com",
+  "app_password": "xwhy rgdo iafh aefr",
+  "approver_email": "sammaretia@gmail.com",
+  "from_email": "sammaretia@gmail.com"
+}

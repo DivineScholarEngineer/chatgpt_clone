@@ -167,6 +167,43 @@
       </div>
     </div>
 
+    <div id="account-dialog" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-content small">
+        <header class="modal-header">
+          <h2>Account settings</h2>
+          <button class="icon-button" id="close-account" aria-label="Close">✕</button>
+        </header>
+        <div class="modal-body auth-body">
+          <form id="account-form">
+            <label>
+              <span>Username</span>
+              <input type="text" id="account-username" autocomplete="username" required />
+            </label>
+            <label>
+              <span>Email</span>
+              <input type="email" id="account-email" autocomplete="email" />
+            </label>
+            <fieldset class="stacked">
+              <legend>Change password</legend>
+              <label>
+                <span>Current password</span>
+                <input type="password" id="account-current-password" autocomplete="current-password" />
+              </label>
+              <label>
+                <span>New password</span>
+                <input type="password" id="account-new-password" autocomplete="new-password" />
+              </label>
+              <label>
+                <span>Confirm password</span>
+                <input type="password" id="account-confirm-password" autocomplete="new-password" />
+              </label>
+            </fieldset>
+            <button type="submit" class="btn primary" id="account-submit">Save changes</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <div id="web-search-panel" class="drawer hidden">
       <div class="drawer-header">
         <h3>Web Pulse</h3>
@@ -204,6 +241,12 @@
     </div>
 
     <div id="notifications" class="notifications"></div>
+
+    <div id="account-menu" class="popover hidden">
+      <button class="popover-item" data-action="profile">👤 Profile</button>
+      <button class="popover-item" data-action="settings">⚙️ Control Center</button>
+      <button class="popover-item" data-action="sign-out">🚪 Sign out</button>
+    </div>
 
     <script src="/static/app.js" type="module"></script>
   </body>

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import secrets
 from collections import Counter
 from datetime import datetime, timezone as datetime_timezone
@@ -10,7 +9,13 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from django.conf import settings
-from django.contrib.auth import authenticate, get_user_model, login as auth_login, logout as auth_logout
+from django.contrib.auth import (
+    authenticate,
+    get_user_model,
+    login as auth_login,
+    logout as auth_logout,
+    update_session_auth_hash,
+)
 from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -22,7 +27,9 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from .emailing import send_admin_request_email
 from .generation import generate_response
+from .images import generate_images
 from .models import AdminRequest, Attachment, Conversation, Message
+from .search import perform_web_search
 
 User = get_user_model()
 
@@ -250,6 +257,76 @@ def logout(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"success": True})
 
 
+@csrf_exempt
+@require_http_methods(["GET", "PATCH"])
+def account_profile(request: HttpRequest) -> JsonResponse:
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Authentication required"}, status=401)
+
+    if request.method == "GET":
+        return JsonResponse({"user": _serialize_user(request.user)})
+
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON payload"}, status=400)
+
+    user = request.user
+    messages: List[str] = []
+
+    if "username" in payload:
+        new_username = (payload.get("username") or "").strip()
+        if not new_username:
+            return JsonResponse({"detail": "Username cannot be empty"}, status=400)
+        if (
+            new_username != user.username
+            and User.objects.filter(username=new_username).exclude(pk=user.pk).exists()
+        ):
+            return JsonResponse({"detail": "Username already taken"}, status=409)
+        if new_username != user.username:
+            user.username = new_username
+            messages.append("Username updated")
+
+    if "email" in payload:
+        new_email = (payload.get("email") or "").strip()
+        if new_email and (
+            User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists()
+        ):
+            return JsonResponse({"detail": "Email already registered"}, status=409)
+        if new_email != user.email:
+            user.email = new_email
+            messages.append("Email updated")
+
+    new_password = payload.get("new_password")
+    if new_password:
+        current_password = payload.get("current_password") or ""
+        confirm_password = payload.get("confirm_password") or new_password
+
+        if len(new_password) < 8:
+            return JsonResponse(
+                {"detail": "New password must be at least 8 characters"}, status=400
+            )
+        if not user.check_password(current_password):
+            return JsonResponse({"detail": "Current password is incorrect"}, status=403)
+        if new_password != confirm_password:
+            return JsonResponse({"detail": "Passwords do not match"}, status=400)
+
+        user.set_password(new_password)
+        messages.append("Password updated")
+        update_session_auth_hash(request, user)
+    elif any(
+        key in payload for key in ("current_password", "confirm_password")
+    ):
+        return JsonResponse(
+            {"detail": "Provide a new_password to change your password"}, status=400
+        )
+
+    if messages:
+        user.save()
+
+    return JsonResponse({"user": _serialize_user(user), "detail": "; ".join(messages) or None})
+
+
 @require_GET
 def list_conversations(request: HttpRequest) -> JsonResponse:
     user = request.user if request.user.is_authenticated else None
@@ -355,6 +432,45 @@ def delete_conversation(request: HttpRequest, conversation_id: int) -> HttpRespo
 
     conversation.delete()
     return HttpResponse(status=204)
+
+
+@csrf_exempt
+@require_http_methods(["PATCH", "DELETE"])
+@transaction.atomic
+def message_detail(
+    request: HttpRequest, conversation_id: int, message_id: int
+) -> HttpResponse:
+    user = request.user if request.user.is_authenticated else None
+    if user is None:
+        return JsonResponse({"detail": "Authentication required"}, status=401)
+
+    conversation = get_object_or_404(Conversation, pk=conversation_id)
+    if not _user_can_access_conversation(user, conversation):
+        return JsonResponse({"detail": "Forbidden"}, status=403)
+
+    message = get_object_or_404(Message, pk=message_id, conversation=conversation)
+
+    if request.method == "DELETE":
+        if message.role == "assistant" and not user.is_staff:
+            return JsonResponse({"detail": "Only admins can delete assistant replies"}, status=403)
+        message.delete()
+        return HttpResponse(status=204)
+
+    if message.role != "user" and not user.is_staff:
+        return JsonResponse({"detail": "Only user messages can be edited"}, status=403)
+
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON payload"}, status=400)
+
+    new_content = (payload.get("content") or "").strip()
+    if not new_content:
+        return JsonResponse({"detail": "Content cannot be empty"}, status=400)
+
+    message.content = new_content
+    message.save(update_fields=["content"])
+    return JsonResponse(_serialize_message(message))
 
 
 @csrf_exempt
@@ -589,30 +705,33 @@ def tool_web_search(request: HttpRequest) -> JsonResponse:
     if not query:
         return JsonResponse({"detail": "Search query required"}, status=400)
 
-    snippets = []
-    user_messages = Message.objects.filter(conversation__owner=request.user, role="assistant")
-    for message in user_messages.order_by("-created_at")[:5]:
-        snippets.append(
+    results = perform_web_search(query)
+
+    if not results:
+        return JsonResponse(
             {
-                "title": message.conversation.title,
-                "excerpt": message.content[:200],
-                "source": "Conversation insight",
+                "query": query,
+                "results": [],
+                "provider": "duckduckgo",
+                "detail": "No live results available right now",
             }
         )
 
-    suggestions = [
+    return JsonResponse(
         {
-            "title": f"Explainer for {query}",
-            "excerpt": "Use the knowledge base to craft a tailored explanation.",
-            "source": "Knowledge base",
+            "query": query,
+            "results": [
+                {
+                    "title": item.title,
+                    "excerpt": item.excerpt,
+                    "url": item.url,
+                    "source": item.source,
+                }
+                for item in results
+            ],
+            "provider": "duckduckgo",
         }
-    ]
-
-    return JsonResponse({
-        "query": query,
-        "results": snippets + suggestions,
-        "provider": "internal-insight",
-    })
+    )
 
 
 @csrf_exempt
@@ -633,14 +752,20 @@ def tool_generate_images(request: HttpRequest) -> JsonResponse:
     if not prompt:
         return JsonResponse({"detail": "Prompt is required"}, status=400)
 
+    generated = generate_images(prompt, count)
     jobs = []
-    for index in range(count):
+    for item in generated:
         jobs.append(
             {
-                "id": secrets.token_hex(8),
-                "prompt": prompt,
-                "estimated_seconds": random.randint(4, 15) * (index + 1),
-                "status": "queued",
+                "id": item.identifier,
+                "prompt": item.prompt,
+                "status": "completed",
+                "image_url": item.url,
+                "filename": item.relative_path,
+                "palette": item.palette,
+                "created_at": item.created_at.isoformat(),
+                "mime_type": item.mime_type,
+                "provider": item.provider,
             }
         )
 

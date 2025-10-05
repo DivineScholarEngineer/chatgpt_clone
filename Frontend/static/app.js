@@ -17,6 +17,7 @@ const elements = {
   tabButtons: Array.from(document.querySelectorAll(".tab-button")),
   tabPanels: Array.from(document.querySelectorAll(".tab-panel")),
   authButton: document.getElementById("auth-button"),
+  accountMenu: document.getElementById("account-menu"),
   authDialog: document.getElementById("auth-dialog"),
   authTitle: document.getElementById("auth-title"),
   closeAuth: document.getElementById("close-auth"),
@@ -51,6 +52,14 @@ const elements = {
   becomeAdmin: document.getElementById("become-admin"),
   refreshAdmin: document.getElementById("refresh-admin"),
   adminStats: document.getElementById("admin-stats"),
+  accountDialog: document.getElementById("account-dialog"),
+  closeAccount: document.getElementById("close-account"),
+  accountForm: document.getElementById("account-form"),
+  accountUsername: document.getElementById("account-username"),
+  accountEmail: document.getElementById("account-email"),
+  accountCurrentPassword: document.getElementById("account-current-password"),
+  accountNewPassword: document.getElementById("account-new-password"),
+  accountConfirmPassword: document.getElementById("account-confirm-password"),
 };
 
 const state = {
@@ -62,6 +71,7 @@ const state = {
   authMode: "login",
   popoverOpen: false,
   persona: null,
+  accountMenuOpen: false,
 };
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -100,7 +110,16 @@ async function fetchJSON(url, options = {}) {
     const detail = await response.json().catch(() => ({}));
     throw new Error(detail.detail || response.statusText);
   }
-  return response.json();
+  if (response.status === 204 || response.status === 205) {
+    return {};
+  }
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return {};
+  }
 }
 
 function formatISODate(iso) {
@@ -197,8 +216,44 @@ function createMessageRow(message) {
     content.appendChild(attachments);
   }
 
+  row.dataset.messageId = message.id;
+  row.dataset.conversationId = message.conversation_id;
+
+  const body = document.createElement("div");
+  body.className = "message-body";
+  body.appendChild(content);
+
+  if (state.session && message.role === "user") {
+    const actions = document.createElement("div");
+    actions.className = "message-actions";
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "icon-button subtle";
+    editButton.title = "Edit message";
+    editButton.textContent = "✏️";
+    editButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openEditMessageDialog(message);
+    });
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "icon-button subtle";
+    deleteButton.title = "Delete message";
+    deleteButton.textContent = "🗑️";
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      confirmDeleteMessage(message);
+    });
+
+    actions.appendChild(editButton);
+    actions.appendChild(deleteButton);
+    body.appendChild(actions);
+  }
+
   row.appendChild(role);
-  row.appendChild(content);
+  row.appendChild(body);
 
   return row;
 }
@@ -220,6 +275,63 @@ function renderMessages(conversation) {
     elements.messages.appendChild(createMessageRow(message));
   });
   elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+function updateMessageInState(updated) {
+  if (!state.currentConversation || state.currentConversation.id !== updated.conversation_id) {
+    return;
+  }
+  const index = state.currentConversation.messages.findIndex((msg) => msg.id === updated.id);
+  if (index !== -1) {
+    state.currentConversation.messages[index] = updated;
+    renderMessages(state.currentConversation);
+  }
+}
+
+function removeMessageFromState(messageId) {
+  if (!state.currentConversation) return;
+  const before = state.currentConversation.messages.length;
+  state.currentConversation.messages = state.currentConversation.messages.filter(
+    (msg) => msg.id !== messageId
+  );
+  if (state.currentConversation.messages.length !== before) {
+    renderMessages(state.currentConversation);
+  }
+}
+
+async function openEditMessageDialog(message) {
+  const current = message.content || "";
+  const updated = prompt("Edit your message", current);
+  if (!updated || updated === current) {
+    return;
+  }
+  try {
+    const response = await fetchJSON(
+      `/conversations/${message.conversation_id}/messages/${message.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ content: updated }),
+      }
+    );
+    updateMessageInState(response);
+    showToast("Message updated");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function confirmDeleteMessage(message) {
+  const ok = confirm("Delete this message?");
+  if (!ok) return;
+  try {
+    await fetchJSON(`/conversations/${message.conversation_id}/messages/${message.id}`, {
+      method: "DELETE",
+    });
+    removeMessageFromState(message.id);
+    showToast("Message deleted");
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function renderAttachments() {
@@ -304,6 +416,7 @@ async function refreshSession() {
       state.session = null;
       state.persona = null;
       elements.authButton.textContent = "Sign in";
+      toggleAccountMenu(false);
       renderPersonaInsights(null);
     }
   } catch (error) {
@@ -441,6 +554,79 @@ function toggleAuthDialog(open) {
   }
 }
 
+function toggleAccountMenu(open, anchor) {
+  if (!elements.accountMenu || !elements.authButton) return;
+  if (open) {
+    const rect = (anchor || elements.authButton).getBoundingClientRect();
+    elements.accountMenu.style.top = `${rect.bottom + 8}px`;
+    elements.accountMenu.style.left = `${rect.left}px`;
+    elements.accountMenu.classList.remove("hidden");
+  } else {
+    elements.accountMenu.classList.add("hidden");
+  }
+  state.accountMenuOpen = open;
+}
+
+function toggleAccountDialog(open) {
+  if (!elements.accountDialog) return;
+  elements.accountDialog.classList.toggle("hidden", !open);
+  if (open) {
+    elements.accountUsername?.focus();
+  }
+}
+
+async function loadAccountProfile() {
+  if (!state.session) return;
+  try {
+    const response = await fetchJSON("/account/profile", { method: "GET" });
+    const user = response.user || {};
+    if (elements.accountUsername) {
+      elements.accountUsername.value = user.username || "";
+    }
+    if (elements.accountEmail) {
+      elements.accountEmail.value = user.email || "";
+    }
+  } catch (error) {
+    showToast(error.message || "Unable to load profile");
+  }
+}
+
+async function handleAccountSubmit(event) {
+  event.preventDefault();
+  const payload = {
+    username: elements.accountUsername?.value.trim(),
+    email: elements.accountEmail?.value.trim(),
+  };
+
+  const currentPassword = elements.accountCurrentPassword?.value || "";
+  const newPassword = elements.accountNewPassword?.value || "";
+  const confirmPassword = elements.accountConfirmPassword?.value || "";
+
+  if (newPassword || confirmPassword || currentPassword) {
+    payload.current_password = currentPassword;
+    payload.new_password = newPassword;
+    payload.confirm_password = confirmPassword;
+  }
+
+  try {
+    const response = await fetchJSON("/account/profile", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    toggleAccountDialog(false);
+    toggleAccountMenu(false);
+    await refreshSession();
+    showToast(response.detail || "Profile updated");
+  } catch (error) {
+    showToast(error.message);
+    return;
+  } finally {
+    if (elements.accountCurrentPassword) elements.accountCurrentPassword.value = "";
+    if (elements.accountNewPassword) elements.accountNewPassword.value = "";
+    if (elements.accountConfirmPassword) elements.accountConfirmPassword.value = "";
+  }
+}
+
 function updateAuthMode(mode) {
   state.authMode = mode;
   const isRegister = mode === "register";
@@ -495,6 +681,7 @@ async function signOut() {
     renderConversations();
     renderMessages(null);
     elements.authButton.textContent = "Sign in";
+    toggleAccountMenu(false);
     showToast("Signed out");
   }
 }
@@ -593,13 +780,32 @@ async function performSearch(query) {
       body: JSON.stringify({ query }),
     });
     elements.searchResults.innerHTML = "";
+    if (!results.results.length) {
+      elements.searchResults.innerHTML = `<p class="empty-state">No results yet – try refining your query.</p>`;
+    }
     results.results.forEach((item) => {
       const card = document.createElement("div");
       card.className = "result-card";
-      card.innerHTML = `<strong>${item.title}</strong><span>${item.excerpt}</span><span class="source">${item.source}</span>`;
+      const title = document.createElement("a");
+      title.href = item.url;
+      title.target = "_blank";
+      title.rel = "noopener";
+      title.textContent = item.title;
+      title.className = "result-title";
+
+      const excerpt = document.createElement("p");
+      excerpt.textContent = item.excerpt;
+
+      const meta = document.createElement("span");
+      meta.className = "source";
+      meta.textContent = item.source || results.provider;
+
+      card.appendChild(title);
+      card.appendChild(excerpt);
+      card.appendChild(meta);
       elements.searchResults.appendChild(card);
     });
-    showToast(`Web Pulse analysed ${results.results.length} sources`);
+    showToast(`Web Pulse found ${results.results.length} result(s)`);
   } catch (error) {
     showToast(error.message);
   }
@@ -610,29 +816,76 @@ function renderImageJobs(jobs) {
   jobs.forEach((job, index) => {
     const card = document.createElement("div");
     card.className = "job-card";
-    const progress = document.createElement("progress");
-    progress.max = 100;
-    progress.value = 5;
-    const status = document.createElement("span");
-    status.textContent = `Job ${index + 1} · ${job.status}`;
-    const eta = document.createElement("span");
-    eta.className = "source";
-    eta.textContent = `ETA: ${job.estimated_seconds} seconds`;
-    card.innerHTML = `<strong>${job.prompt}</strong>`;
-    card.appendChild(status);
-    card.appendChild(progress);
-    card.appendChild(eta);
-    elements.imageJobs.appendChild(card);
+    const title = document.createElement("strong");
+    title.textContent = job.prompt || `Image job ${index + 1}`;
+    card.appendChild(title);
 
-    let value = 5;
-    const interval = setInterval(() => {
-      value += Math.random() * 15;
-      progress.value = Math.min(100, value);
-      if (progress.value >= 100) {
-        clearInterval(interval);
-        status.textContent = `Job ${index + 1} · ready to download`;
+    const status = document.createElement("span");
+    status.className = "source";
+    const provider = job.provider ? ` · ${job.provider}` : "";
+    status.textContent = `Job ${index + 1} · ${job.status}${provider}`;
+    card.appendChild(status);
+
+    if (Array.isArray(job.palette) && job.palette.length) {
+      const palette = document.createElement("div");
+      palette.className = "job-palette";
+      job.palette.forEach((color) => {
+        const swatch = document.createElement("span");
+        swatch.className = "palette-swatch";
+        swatch.style.background = color;
+        swatch.title = color;
+        palette.appendChild(swatch);
+      });
+      card.appendChild(palette);
+    }
+
+    if (job.image_url) {
+      const preview = document.createElement("img");
+      preview.src = job.image_url;
+      preview.alt = job.prompt || "Generated artwork";
+      preview.loading = "lazy";
+      card.appendChild(preview);
+
+      const actions = document.createElement("div");
+      actions.className = "job-actions";
+
+      const downloadLink = document.createElement("a");
+      downloadLink.href = job.image_url;
+      downloadLink.download = job.filename ? job.filename.split("/").pop() : "imageforge.svg";
+      downloadLink.textContent = "Download";
+      actions.appendChild(downloadLink);
+
+      if (job.prompt && navigator.clipboard) {
+        const copyButton = document.createElement("button");
+        copyButton.type = "button";
+        copyButton.textContent = "Copy prompt";
+        copyButton.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(job.prompt);
+            showToast("Prompt copied to clipboard");
+          } catch (error) {
+            showToast("Couldn't copy prompt");
+          }
+        });
+        actions.appendChild(copyButton);
       }
-    }, 1200);
+
+      card.appendChild(actions);
+    } else {
+      const progress = document.createElement("progress");
+      progress.max = 100;
+      progress.value = 100;
+      card.appendChild(progress);
+    }
+
+    if (job.created_at) {
+      const stamp = document.createElement("span");
+      stamp.className = "source";
+      stamp.textContent = `Generated ${formatISOTime(job.created_at)}`;
+      card.appendChild(stamp);
+    }
+
+    elements.imageJobs.appendChild(card);
   });
 }
 
@@ -721,14 +974,23 @@ function setupEventListeners() {
   elements.settingsButton.addEventListener("click", () => toggleSettings(true));
   elements.closeSettings.addEventListener("click", () => toggleSettings(false));
 
-  elements.authButton.addEventListener("click", () => {
+  elements.authButton.addEventListener("click", (event) => {
     if (state.session) {
-      const signOutConfirmed = confirm("Sign out?");
-      if (signOutConfirmed) {
-        signOut();
-      }
+      event.stopPropagation();
+      toggleAccountMenu(!state.accountMenuOpen, event.currentTarget);
     } else {
       toggleAuthDialog(true);
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    if (
+      state.accountMenuOpen &&
+      elements.accountMenu &&
+      !elements.accountMenu.contains(event.target) &&
+      event.target !== elements.authButton
+    ) {
+      toggleAccountMenu(false);
     }
   });
 
@@ -737,6 +999,35 @@ function setupEventListeners() {
   elements.authToggleMode.addEventListener("click", () => {
     updateAuthMode(state.authMode === "login" ? "register" : "login");
   });
+
+  if (elements.accountForm) {
+    elements.accountForm.addEventListener("submit", handleAccountSubmit);
+  }
+
+  if (elements.closeAccount) {
+    elements.closeAccount.addEventListener("click", () => toggleAccountDialog(false));
+  }
+
+  if (elements.accountMenu) {
+    elements.accountMenu.addEventListener("click", async (event) => {
+      const button = event.target.closest(".popover-item");
+      if (!button) return;
+      const action = button.dataset.action;
+      if (action === "profile") {
+        await loadAccountProfile();
+        toggleAccountDialog(true);
+        toggleAccountMenu(false);
+      }
+      if (action === "settings") {
+        toggleSettings(true);
+        toggleAccountMenu(false);
+      }
+      if (action === "sign-out") {
+        toggleAccountMenu(false);
+        signOut();
+      }
+    });
+  }
 
   elements.themeToggle.addEventListener("click", () => {
     const isDark = document.body.classList.contains("theme-dark");
