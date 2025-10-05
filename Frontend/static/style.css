@@ -649,6 +649,61 @@ textarea:focus {
   border-radius: 999px;
 }
 
+.job-card img {
+  width: 100%;
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+  margin-top: 0.5rem;
+}
+
+.job-palette {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0.2rem;
+}
+
+.palette-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+
+.job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.job-actions a,
+.job-actions button {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 8px 18px rgba(6, 182, 212, 0.35);
+}
+
+.job-actions a:hover,
+.job-actions button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(6, 182, 212, 0.45);
+}
+
+.job-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .popover {
   position: absolute;
   background: var(--bg-surface);

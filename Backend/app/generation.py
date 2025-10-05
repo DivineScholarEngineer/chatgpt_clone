@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
+import re
+import textwrap
 from threading import Lock
-from typing import Iterable
+from typing import Iterable, List
 
 try:  # pragma: no cover - transformers is optional
     from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
@@ -15,6 +18,7 @@ from .models import Message
 
 _model_lock = Lock()
 _generation_pipeline = None
+_logger = logging.getLogger(__name__)
 
 
 def load_generation_pipeline():
@@ -55,9 +59,60 @@ def build_prompt(messages: Iterable[Message]) -> str:
     return "\n".join(parts)
 
 
+def _fallback_response(messages: List[Message]) -> str:
+    """Return a lightweight response when the model is unavailable."""
+
+    last_user_message = next(
+        (
+            message.content.strip()
+            for message in reversed(messages)
+            if message.role == "user" and message.content.strip()
+        ),
+        "",
+    )
+
+    if not last_user_message:
+        return (
+            "I'm here and ready whenever you are. The full model is still warming up, "
+            "so feel free to ask a question in the meantime.\n\n"
+            "(Model temporarily unavailable; provided a backup response.)"
+        )
+
+    normalized = re.sub(r"\s+", " ", last_user_message)
+    summary = textwrap.shorten(normalized, width=160, placeholder="…")
+
+    tokens = [
+        re.sub(r"[^a-z0-9]", "", word.lower())
+        for word in normalized.split()
+        if len(word) > 3
+    ]
+    seen: list[str] = []
+    for token in tokens:
+        if token not in seen:
+            seen.append(token)
+        if len(seen) == 3:
+            break
+
+    if seen:
+        keyword_lines = "\n".join(f"- {word.title()}" for word in seen)
+    else:
+        keyword_lines = "- I'm ready to dig in whenever you are."
+
+    return (
+        "I'm operating in a lightweight mode right now, so here's a quick reflection "
+        "instead of a full model reply.\n\n"
+        f"Summary: {summary}\n"
+        "Key ideas I'm noticing:\n"
+        f"{keyword_lines}\n\n"
+        "Let me know if you'd like to explore any of those in more detail.\n\n"
+        "(Model temporarily unavailable; provided a backup response.)"
+    )
+
+
 def generate_response(messages: Iterable[Message]) -> str:
     """Generate a response for the supplied conversation history."""
-    prompt = build_prompt(messages)
+    history = list(messages)
+    prompt = build_prompt(history)
     try:
         with _model_lock:
             generator = load_generation_pipeline()
@@ -67,10 +122,9 @@ def generate_response(messages: Iterable[Message]) -> str:
         if outputs and "summary_text" in outputs[0]:
             return outputs[0]["summary_text"].strip() or "(The model returned an empty response.)"
         return "(No response generated.)"
-    except RuntimeError:
-        return (
-            "[Model not loaded] Configure the MODEL_NAME environment variable and install "
-            "transformers to enable text generation."
-        )
+    except RuntimeError as exc:
+        _logger.warning("Generation pipeline unavailable; using fallback: %s", exc)
+        return _fallback_response(history)
     except Exception as exc:  # pragma: no cover - logging placeholder
-        return f"An error occurred while generating a response: {exc}"
+        _logger.exception("Generation pipeline failed", exc_info=exc)
+        return _fallback_response(history)

@@ -25,6 +25,10 @@ class AuthViewTests(TestCase):
         self.assertEqual(data["user"]["username"], "alice")
         self.assertTrue(User.objects.filter(username="alice").exists())
 
+        created_user = User.objects.get(username="alice")
+        self.assertNotEqual(created_user.password, payload["password"])
+        self.assertTrue(created_user.check_password(payload["password"]))
+
         session_response = self.client.get(reverse("session_info"))
         self.assertEqual(session_response.status_code, 200)
         self.assertTrue(session_response.json().get("authenticated"))

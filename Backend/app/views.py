@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import secrets
 from collections import Counter
 from datetime import datetime, timezone as datetime_timezone
@@ -22,6 +21,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from .emailing import send_admin_request_email
 from .generation import generate_response
+from .imageforge import forge_images
 from .models import AdminRequest, Attachment, Conversation, Message
 
 User = get_user_model()
@@ -633,14 +633,19 @@ def tool_generate_images(request: HttpRequest) -> JsonResponse:
     if not prompt:
         return JsonResponse({"detail": "Prompt is required"}, status=400)
 
+    forged = forge_images(prompt, count)
     jobs = []
-    for index in range(count):
+    for item in forged:
         jobs.append(
             {
-                "id": secrets.token_hex(8),
-                "prompt": prompt,
-                "estimated_seconds": random.randint(4, 15) * (index + 1),
-                "status": "queued",
+                "id": item.identifier,
+                "prompt": item.prompt,
+                "status": "completed",
+                "image_url": item.url,
+                "filename": item.relative_path,
+                "palette": item.palette,
+                "created_at": item.created_at.isoformat(),
+                "mime_type": "image/svg+xml",
             }
         )
 
