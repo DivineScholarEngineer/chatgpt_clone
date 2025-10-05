@@ -5,7 +5,7 @@ import os
 import random
 import secrets
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone as datetime_timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -32,7 +32,9 @@ def _isoformat(value: datetime | None) -> str | None:
         return None
     if timezone.is_naive(value):
         return value.isoformat()
-    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return (
+        value.astimezone(datetime_timezone.utc).isoformat().replace("+00:00", "Z")
+    )
 
 
 def _serialize_attachment(attachment: Attachment) -> Dict[str, Any]:
@@ -177,6 +179,9 @@ def register(request: HttpRequest) -> JsonResponse:
     if User.objects.filter(username=username).exists():
         return JsonResponse({"detail": "Username already taken"}, status=409)
 
+    if email and User.objects.filter(email__iexact=email).exists():
+        return JsonResponse({"detail": "Email already registered"}, status=409)
+
     user = User.objects.create_user(username=username, email=email, password=password)
     auth_login(request, user)
     return JsonResponse({"user": _serialize_user(user)})
@@ -190,13 +195,21 @@ def login(request: HttpRequest) -> JsonResponse:
     except json.JSONDecodeError:
         return JsonResponse({"detail": "Invalid JSON payload"}, status=400)
 
-    username = (payload.get("username") or "").strip()
+    identifier = (payload.get("username") or payload.get("email") or "").strip()
     password = payload.get("password") or ""
 
-    if not username or not password:
+    if not identifier or not password:
         return JsonResponse({"detail": "Username and password are required"}, status=400)
 
-    user = authenticate(request, username=username, password=password)
+    user = authenticate(request, username=identifier, password=password)
+
+    if user is None and "@" in identifier:
+        matched_user = User.objects.filter(email__iexact=identifier).first()
+        if matched_user is not None:
+            user = authenticate(
+                request, username=matched_user.get_username(), password=password
+            )
+
     if user is None:
         return JsonResponse({"detail": "Invalid credentials"}, status=401)
 
