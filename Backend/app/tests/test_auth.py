@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 
@@ -24,6 +24,32 @@ class AuthViewTests(TestCase):
         self.assertIn("user", data)
         self.assertEqual(data["user"]["username"], "alice")
         self.assertTrue(User.objects.filter(username="alice").exists())
+
+        session_response = self.client.get(reverse("session_info"))
+        self.assertEqual(session_response.status_code, 200)
+        self.assertTrue(session_response.json().get("authenticated"))
+
+    @override_settings(
+        AUTHENTICATION_BACKENDS=[
+            "django.contrib.auth.backends.RemoteUserBackend",
+            "django.contrib.auth.backends.ModelBackend",
+        ]
+    )
+    def test_register_handles_multiple_backends(self) -> None:
+        payload = {
+            "username": "dave",
+            "email": "dave@example.com",
+            "password": "multi-pass",
+        }
+
+        response = self.client.post(
+            reverse("register"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user"]["username"], "dave")
 
         session_response = self.client.get(reverse("session_info"))
         self.assertEqual(session_response.status_code, 200)
