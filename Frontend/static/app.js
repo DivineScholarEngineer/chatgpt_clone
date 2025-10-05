@@ -610,29 +610,75 @@ function renderImageJobs(jobs) {
   jobs.forEach((job, index) => {
     const card = document.createElement("div");
     card.className = "job-card";
-    const progress = document.createElement("progress");
-    progress.max = 100;
-    progress.value = 5;
-    const status = document.createElement("span");
-    status.textContent = `Job ${index + 1} · ${job.status}`;
-    const eta = document.createElement("span");
-    eta.className = "source";
-    eta.textContent = `ETA: ${job.estimated_seconds} seconds`;
-    card.innerHTML = `<strong>${job.prompt}</strong>`;
-    card.appendChild(status);
-    card.appendChild(progress);
-    card.appendChild(eta);
-    elements.imageJobs.appendChild(card);
+    const title = document.createElement("strong");
+    title.textContent = job.prompt || `Image job ${index + 1}`;
+    card.appendChild(title);
 
-    let value = 5;
-    const interval = setInterval(() => {
-      value += Math.random() * 15;
-      progress.value = Math.min(100, value);
-      if (progress.value >= 100) {
-        clearInterval(interval);
-        status.textContent = `Job ${index + 1} · ready to download`;
+    const status = document.createElement("span");
+    status.className = "source";
+    status.textContent = `Job ${index + 1} · ${job.status}`;
+    card.appendChild(status);
+
+    if (Array.isArray(job.palette) && job.palette.length) {
+      const palette = document.createElement("div");
+      palette.className = "job-palette";
+      job.palette.forEach((color) => {
+        const swatch = document.createElement("span");
+        swatch.className = "palette-swatch";
+        swatch.style.background = color;
+        swatch.title = color;
+        palette.appendChild(swatch);
+      });
+      card.appendChild(palette);
+    }
+
+    if (job.image_url) {
+      const preview = document.createElement("img");
+      preview.src = job.image_url;
+      preview.alt = job.prompt || "Generated artwork";
+      preview.loading = "lazy";
+      card.appendChild(preview);
+
+      const actions = document.createElement("div");
+      actions.className = "job-actions";
+
+      const downloadLink = document.createElement("a");
+      downloadLink.href = job.image_url;
+      downloadLink.download = job.filename ? job.filename.split("/").pop() : "imageforge.svg";
+      downloadLink.textContent = "Download";
+      actions.appendChild(downloadLink);
+
+      if (job.prompt && navigator.clipboard) {
+        const copyButton = document.createElement("button");
+        copyButton.type = "button";
+        copyButton.textContent = "Copy prompt";
+        copyButton.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(job.prompt);
+            showToast("Prompt copied to clipboard");
+          } catch (error) {
+            showToast("Couldn't copy prompt");
+          }
+        });
+        actions.appendChild(copyButton);
       }
-    }, 1200);
+
+      card.appendChild(actions);
+    } else {
+      const progress = document.createElement("progress");
+      progress.max = 100;
+      progress.value = 100;
+      card.appendChild(progress);
+    }
+
+    if (job.created_at) {
+      const stamp = document.createElement("span");
+      stamp.className = "source";
+      stamp.textContent = `Generated ${formatISOTime(job.created_at)}`;
+      card.appendChild(stamp);
+    }
+
+    elements.imageJobs.appendChild(card);
   });
 }
 
