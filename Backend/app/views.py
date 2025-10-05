@@ -183,8 +183,33 @@ def register(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"detail": "Email already registered"}, status=409)
 
     user = User.objects.create_user(username=username, email=email, password=password)
-    auth_login(request, user)
-    return JsonResponse({"user": _serialize_user(user)})
+
+    authenticated_user = authenticate(
+        request, username=user.get_username(), password=password
+    )
+    if authenticated_user is None:
+        backend_list = list(
+            getattr(
+                settings,
+                "AUTHENTICATION_BACKENDS",
+                ["django.contrib.auth.backends.ModelBackend"],
+            )
+        )
+        preferred_backend = next(
+            (
+                backend
+                for backend in backend_list
+                if backend == "django.contrib.auth.backends.ModelBackend"
+            ),
+            backend_list[0],
+        )
+        auth_login(request, user, backend=preferred_backend)
+        active_user = user
+    else:
+        auth_login(request, authenticated_user)
+        active_user = authenticated_user
+
+    return JsonResponse({"user": _serialize_user(active_user)})
 
 
 @csrf_exempt
