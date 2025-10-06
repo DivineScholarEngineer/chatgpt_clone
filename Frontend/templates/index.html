@@ -148,6 +148,7 @@
         </header>
         <div class="modal-body auth-body">
           <form id="auth-form">
+            <p id="auth-help-text" class="auth-help"></p>
             <label>
               <span>Username</span>
               <input type="text" id="auth-username" autocomplete="username" required />
@@ -160,8 +161,24 @@
               <span>Password</span>
               <input type="password" id="auth-password" autocomplete="current-password" required />
             </label>
-            <button type="submit" class="btn primary" id="auth-submit">Continue</button>
-            <button type="button" class="btn secondary" id="auth-toggle-mode">Switch to register</button>
+            <label class="hidden" id="auth-reset-token-row">
+              <span>Reset code</span>
+              <input type="text" id="auth-reset-token" autocomplete="one-time-code" />
+            </label>
+            <label class="hidden" id="auth-new-password-row">
+              <span>New password</span>
+              <input type="password" id="auth-new-password" autocomplete="new-password" />
+            </label>
+            <label class="hidden" id="auth-confirm-password-row">
+              <span>Confirm new password</span>
+              <input type="password" id="auth-confirm-password" autocomplete="new-password" />
+            </label>
+            <div class="auth-actions">
+              <button type="submit" class="btn primary" id="auth-submit">Continue</button>
+              <button type="button" class="btn secondary" id="auth-toggle-mode">Switch to register</button>
+            </div>
+            <button type="button" class="link-button" id="auth-forgot">Forgot password?</button>
+            <button type="button" class="link-button hidden" id="auth-back-to-login">Back to sign in</button>
           </form>
         </div>
       </div>
@@ -213,6 +230,7 @@
         <input type="text" id="search-query" placeholder="Search the web" required />
         <button type="submit" class="btn primary">Search</button>
       </form>
+      <div id="search-summary" class="drawer-summary hidden"></div>
       <div id="search-results" class="drawer-results"></div>
     </div>
 

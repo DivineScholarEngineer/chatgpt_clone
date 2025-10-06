@@ -27,6 +27,15 @@ const elements = {
   authPassword: document.getElementById("auth-password"),
   authSubmit: document.getElementById("auth-submit"),
   authToggleMode: document.getElementById("auth-toggle-mode"),
+  authHelpText: document.getElementById("auth-help-text"),
+  authResetToken: document.getElementById("auth-reset-token"),
+  authNewPassword: document.getElementById("auth-new-password"),
+  authConfirmPassword: document.getElementById("auth-confirm-password"),
+  authResetTokenRow: document.getElementById("auth-reset-token-row"),
+  authNewPasswordRow: document.getElementById("auth-new-password-row"),
+  authConfirmPasswordRow: document.getElementById("auth-confirm-password-row"),
+  authForgot: document.getElementById("auth-forgot"),
+  authBackToLogin: document.getElementById("auth-back-to-login"),
   themeToggle: document.getElementById("theme-toggle"),
   insightsBar: document.getElementById("insights-bar"),
   composerStatus: document.getElementById("composer-status"),
@@ -41,6 +50,7 @@ const elements = {
   searchForm: document.getElementById("search-form"),
   searchQuery: document.getElementById("search-query"),
   searchResults: document.getElementById("search-results"),
+  searchSummary: document.getElementById("search-summary"),
   openImages: document.getElementById("open-images"),
   imagePanel: document.getElementById("image-panel"),
   closeImages: document.getElementById("close-images"),
@@ -546,11 +556,26 @@ function toggleSettings(open) {
   elements.controlCenter.classList.toggle("hidden", !open);
 }
 
+function clearAuthForm() {
+  if (elements.authUsername) elements.authUsername.value = "";
+  if (elements.authEmail) elements.authEmail.value = "";
+  if (elements.authPassword) elements.authPassword.value = "";
+  if (elements.authResetToken) elements.authResetToken.value = "";
+  if (elements.authNewPassword) elements.authNewPassword.value = "";
+  if (elements.authConfirmPassword) elements.authConfirmPassword.value = "";
+  if (elements.authHelpText) elements.authHelpText.textContent = "";
+}
+
 function toggleAuthDialog(open) {
   if (!elements.authDialog) return;
   elements.authDialog.classList.toggle("hidden", !open);
   if (open) {
-    elements.authUsername.focus();
+    clearAuthForm();
+    updateAuthMode("login");
+    elements.authUsername?.focus();
+  } else {
+    clearAuthForm();
+    updateAuthMode("login");
   }
 }
 
@@ -629,19 +654,146 @@ async function handleAccountSubmit(event) {
 
 function updateAuthMode(mode) {
   state.authMode = mode;
+  const isLogin = mode === "login";
   const isRegister = mode === "register";
-  elements.authTitle.textContent = isRegister ? "Register" : "Sign in";
-  elements.authToggleMode.textContent = isRegister
-    ? "Switch to sign in"
-    : "Switch to register";
-  elements.authEmail.parentElement.classList.toggle("hidden", !isRegister);
+  const isForgot = mode === "forgot";
+  const isReset = mode === "reset";
+
+  if (elements.authTitle) {
+    if (isRegister) {
+      elements.authTitle.textContent = "Register";
+    } else if (isForgot) {
+      elements.authTitle.textContent = "Forgot password";
+    } else if (isReset) {
+      elements.authTitle.textContent = "Reset password";
+    } else {
+      elements.authTitle.textContent = "Sign in";
+    }
+  }
+
+  const usernameRow = elements.authUsername?.closest("label");
+  const emailRow = elements.authEmail?.closest("label");
+  const passwordRow = elements.authPassword?.closest("label");
+
+  usernameRow?.classList.toggle("hidden", isReset);
+  emailRow?.classList.toggle("hidden", !(isRegister || isForgot));
+  passwordRow?.classList.toggle("hidden", !(isLogin || isRegister));
+  elements.authResetTokenRow?.classList.toggle("hidden", !isReset);
+  elements.authNewPasswordRow?.classList.toggle("hidden", !isReset);
+  elements.authConfirmPasswordRow?.classList.toggle("hidden", !isReset);
+
+  if (elements.authToggleMode) {
+    elements.authToggleMode.classList.toggle("hidden", isForgot || isReset);
+    elements.authToggleMode.textContent = isRegister
+      ? "Switch to sign in"
+      : "Switch to register";
+  }
+
+  elements.authForgot?.classList.toggle("hidden", !isLogin);
+  elements.authBackToLogin?.classList.toggle("hidden", isLogin);
+
+  if (elements.authSubmit) {
+    if (isForgot) {
+      elements.authSubmit.textContent = "Send reset code";
+    } else if (isReset) {
+      elements.authSubmit.textContent = "Update password";
+    } else if (isRegister) {
+      elements.authSubmit.textContent = "Create account";
+    } else {
+      elements.authSubmit.textContent = "Continue";
+    }
+  }
+
+  elements.authUsername.required = isRegister || isLogin;
+  elements.authPassword.required = isRegister || isLogin;
+  elements.authEmail.required = isRegister;
+  if (elements.authNewPassword) elements.authNewPassword.required = isReset;
+  if (elements.authConfirmPassword) elements.authConfirmPassword.required = isReset;
+
+  if (elements.authHelpText) {
+    let message = "";
+    if (isLogin) {
+      message = "Sign in with your username or email and password.";
+    } else if (isRegister) {
+      message = "Create a new account to unlock GPT-OSS features.";
+    } else if (isForgot) {
+      message = "Enter your email (or username) and we'll email you a reset code.";
+    } else if (isReset) {
+      message = "Paste the reset code from your email and choose a new password.";
+    }
+    elements.authHelpText.textContent = message;
+  }
 }
 
 async function handleAuthSubmit(event) {
   event.preventDefault();
-  const username = elements.authUsername.value.trim();
-  const email = elements.authEmail.value.trim();
-  const password = elements.authPassword.value;
+  const mode = state.authMode;
+
+  if (mode === "forgot") {
+    const identifier = (elements.authEmail?.value.trim() || elements.authUsername?.value.trim() || "").trim();
+    if (!identifier) {
+      showToast("Enter your email or username");
+      return;
+    }
+
+    try {
+      await fetchJSON("/auth/password/forgot", {
+        method: "POST",
+        body: JSON.stringify({ identifier }),
+      });
+      showToast("Reset code sent if the account exists");
+      updateAuthMode("reset");
+    } catch (error) {
+      showToast(error.message);
+    }
+    return;
+  }
+
+  if (mode === "reset") {
+    const token = elements.authResetToken?.value.trim();
+    const newPassword = elements.authNewPassword?.value || "";
+    const confirmPassword = elements.authConfirmPassword?.value || "";
+    const loginIdentifier =
+      elements.authEmail?.value.trim() || elements.authUsername?.value.trim() || "";
+
+    if (!token) {
+      showToast("Reset code is required");
+      return;
+    }
+    if (newPassword.length < 8) {
+      showToast("New password must be at least 8 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showToast("Passwords do not match");
+      return;
+    }
+
+    try {
+      await fetchJSON("/auth/password/reset", {
+        method: "POST",
+        body: JSON.stringify({
+          token,
+          new_password: newPassword,
+          confirm_password: confirmPassword,
+        }),
+      });
+      showToast("Password updated. You can sign in now.");
+      clearAuthForm();
+      updateAuthMode("login");
+      if (loginIdentifier && elements.authUsername) {
+        elements.authUsername.value = loginIdentifier;
+      }
+      elements.authPassword?.focus();
+    } catch (error) {
+      showToast(error.message);
+    }
+    return;
+  }
+
+  const username = elements.authUsername?.value.trim();
+  const email = elements.authEmail?.value.trim();
+  const password = elements.authPassword?.value || "";
 
   if (!username || !password) {
     showToast("Username and password are required");
@@ -649,9 +801,9 @@ async function handleAuthSubmit(event) {
   }
 
   try {
-    const endpoint = state.authMode === "register" ? "/auth/register" : "/auth/login";
+    const endpoint = mode === "register" ? "/auth/register" : "/auth/login";
     const payload = { username, password };
-    if (state.authMode === "register" && email) {
+    if (mode === "register" && email) {
       payload.email = email;
     }
 
@@ -663,7 +815,7 @@ async function handleAuthSubmit(event) {
     toggleAuthDialog(false);
     await refreshSession();
     await fetchConversations();
-    showToast(state.authMode === "register" ? "Account created" : "Welcome back!");
+    showToast(mode === "register" ? "Account created" : "Welcome back!");
   } catch (error) {
     showToast(error.message);
   }
@@ -780,6 +932,15 @@ async function performSearch(query) {
       body: JSON.stringify({ query }),
     });
     elements.searchResults.innerHTML = "";
+    if (elements.searchSummary) {
+      if (results.summary) {
+        elements.searchSummary.textContent = results.summary;
+        elements.searchSummary.classList.remove("hidden");
+      } else {
+        elements.searchSummary.textContent = "";
+        elements.searchSummary.classList.add("hidden");
+      }
+    }
     if (!results.results.length) {
       elements.searchResults.innerHTML = `<p class="empty-state">No results yet – try refining your query.</p>`;
     }
@@ -807,6 +968,10 @@ async function performSearch(query) {
     });
     showToast(`Web Pulse found ${results.results.length} result(s)`);
   } catch (error) {
+    if (elements.searchSummary) {
+      elements.searchSummary.textContent = "";
+      elements.searchSummary.classList.add("hidden");
+    }
     showToast(error.message);
   }
 }
@@ -819,6 +984,13 @@ function renderImageJobs(jobs) {
     const title = document.createElement("strong");
     title.textContent = job.prompt || `Image job ${index + 1}`;
     card.appendChild(title);
+
+    if (job.caption) {
+      const caption = document.createElement("p");
+      caption.className = "job-caption";
+      caption.textContent = job.caption;
+      card.appendChild(caption);
+    }
 
     const status = document.createElement("span");
     status.className = "source";
@@ -861,7 +1033,8 @@ function renderImageJobs(jobs) {
         copyButton.textContent = "Copy prompt";
         copyButton.addEventListener("click", async () => {
           try {
-            await navigator.clipboard.writeText(job.prompt);
+            const promptToCopy = job.director_prompt || job.prompt;
+            await navigator.clipboard.writeText(promptToCopy);
             showToast("Prompt copied to clipboard");
           } catch (error) {
             showToast("Couldn't copy prompt");
@@ -999,6 +1172,14 @@ function setupEventListeners() {
   elements.authToggleMode.addEventListener("click", () => {
     updateAuthMode(state.authMode === "login" ? "register" : "login");
   });
+
+  if (elements.authForgot) {
+    elements.authForgot.addEventListener("click", () => updateAuthMode("forgot"));
+  }
+
+  if (elements.authBackToLogin) {
+    elements.authBackToLogin.addEventListener("click", () => updateAuthMode("login"));
+  }
 
   if (elements.accountForm) {
     elements.accountForm.addEventListener("submit", handleAccountSubmit);

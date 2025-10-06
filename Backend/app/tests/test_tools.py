@@ -58,9 +58,16 @@ class ImageForgeViewTests(TestCase):
             self.assertEqual(job["status"], "completed")
             self.assertTrue(job["image_url"].endswith((".svg", ".png")))
             self.assertTrue(job["filename"].startswith("imageforge/"))
-            self.assertIn(job["provider"], {"placeholder", "huggingface"})
+            self.assertTrue(
+                job["provider"].startswith("placeholder")
+                or job["provider"].startswith("huggingface")
+            )
             expected_path = TEST_MEDIA_ROOT / Path(job["filename"])
             self.assertTrue(expected_path.exists())
+            self.assertIn("gpt-oss-20b", job["provider"])
+            self.assertIn("caption", job)
+            self.assertTrue(job["caption"])
+            self.assertIn("director_prompt", job)
 
 
 class SearchToolTests(TestCase):
@@ -88,6 +95,20 @@ class SearchToolTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["provider"], "duckduckgo")
+        self.assertEqual(payload["provider"], "duckduckgo+gpt-oss-20b")
         self.assertEqual(len(payload["results"]), 1)
         self.assertEqual(payload["results"][0]["url"], "https://duckduckgo.com")
+
+    def test_tool_web_search_includes_summary(self) -> None:
+        with mock.patch("app.views.perform_web_search", return_value=[]) as patched_search:
+            response = self.client.post(
+                reverse("tool_web_search"),
+                data=json.dumps({"query": "no results"}),
+                content_type="application/json",
+            )
+
+        self.assertTrue(patched_search.called)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("summary", payload)
+        self.assertIn("gpt-oss-20b", payload["provider"])

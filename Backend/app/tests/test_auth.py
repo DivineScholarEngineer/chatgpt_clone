@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
+
+from app.models import PasswordResetRequest
 
 
 User = get_user_model()
@@ -85,4 +88,48 @@ class AuthViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["detail"], "Invalid credentials")
+        self.assertIn("Invalid credentials", response.json()["detail"])
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_password_reset_flow_updates_password(self) -> None:
+        user = User.objects.create_user(
+            username="recover", email="recover@example.com", password="oldsecret"
+        )
+
+        response = self.client.post(
+            reverse("password_forgot"),
+            data=json.dumps({"identifier": "recover@example.com"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+
+        reset_request = PasswordResetRequest.objects.get(user=user)
+
+        reset_response = self.client.post(
+            reverse("password_reset"),
+            data=json.dumps(
+                {
+                    "token": reset_request.token,
+                    "new_password": "freshpass123",
+                    "confirm_password": "freshpass123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(reset_response.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("freshpass123"))
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_password_forgot_does_not_leak_user_presence(self) -> None:
+        response = self.client.post(
+            reverse("password_forgot"),
+            data=json.dumps({"identifier": "unknown@example.com"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)

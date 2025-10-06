@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from django.conf import settings
 from django.core.mail import EmailMessage
 
-from .models import AdminRequest
+from .models import AdminRequest, PasswordResetRequest
 
 
 @dataclass
@@ -40,6 +40,36 @@ def send_admin_request_email(admin_request: AdminRequest) -> EmailResult:
         body=body,
         from_email=getattr(settings, "DEFAULT_FROM_EMAIL", approver),
         to=[approver],
+    )
+
+    try:
+        message.send(fail_silently=False)
+        return EmailResult(True)
+    except Exception as exc:  # pragma: no cover - depends on SMTP availability
+        return EmailResult(False, str(exc))
+
+
+def send_password_reset_email(reset_request: PasswordResetRequest) -> EmailResult:
+    """Dispatch a password reset token to the account's email address."""
+
+    user = reset_request.user
+    if not user.email:
+        return EmailResult(False, "User has no email address on file")
+
+    subject = "Reset your DIV GPT Studio password"
+    body = (
+        "You requested a password reset for your DIV GPT Studio account.\n\n"
+        f"Username: {user.username}\n"
+        f"Reset code: {reset_request.token}\n\n"
+        "Enter this code in the app to set a new password within the next two hours. "
+        "If you did not make this request you can safely ignore this email."
+    )
+
+    message = EmailMessage(
+        subject=subject,
+        body=body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None) or settings.EMAIL_HOST_USER,
+        to=[user.email],
     )
 
     try:

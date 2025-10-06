@@ -23,6 +23,8 @@ class ForgedImage:
     relative_path: str
     palette: List[str]
     created_at: datetime
+    caption: str
+    director_prompt: str
 
     @property
     def filename(self) -> str:
@@ -105,7 +107,13 @@ def _build_svg(prompt: str, palette: List[str], seed_int: int) -> str:
     )
 
 
-def forge_images(prompt: str, count: int) -> List[ForgedImage]:
+def forge_images(
+    prompt: str,
+    count: int,
+    *,
+    caption: str | None = None,
+    director_prompt: str | None = None,
+) -> List[ForgedImage]:
     """Create decorative SVG placeholders for the requested prompt."""
 
     output_dir = _ensure_output_dir()
@@ -129,6 +137,8 @@ def forge_images(prompt: str, count: int) -> List[ForgedImage]:
                 relative_path=str(relative_path).replace("\\", "/"),
                 palette=palette,
                 created_at=timestamp,
+                caption=caption or trimmed_prompt,
+                director_prompt=director_prompt or trimmed_prompt,
             )
         )
 

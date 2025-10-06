@@ -14,11 +14,21 @@ except ImportError:  # pragma: no cover - optional dependency
 _logger = logging.getLogger(__name__)
 
 
-def _resolve_model_name(preferred: str | None, fallback: str | None) -> Optional[str]:
+DEFAULT_TEXT_MODEL = os.getenv("DEFAULT_TEXT_MODEL", "openai/gpt-oss-20b")
+DEFAULT_IMAGE_MODEL = os.getenv(
+    "DEFAULT_IMAGE_MODEL", "black-forest-labs/flux-1-schnell"
+)
+
+
+def _resolve_model_name(
+    preferred: str | None, fallback: str | None, default: str | None
+) -> Optional[str]:
     if preferred and preferred.strip():
         return preferred.strip()
     if fallback and fallback.strip():
         return fallback.strip()
+    if default and default.strip():
+        return default.strip()
     return None
 
 
@@ -29,7 +39,9 @@ def get_text_client() -> Optional["InferenceClient"]:
     if InferenceClient is None:
         return None
 
-    model = _resolve_model_name(os.getenv("HF_TEXT_MODEL"), os.getenv("MODEL_NAME"))
+    model = _resolve_model_name(
+        os.getenv("HF_TEXT_MODEL"), os.getenv("MODEL_NAME"), DEFAULT_TEXT_MODEL
+    )
     endpoint = os.getenv("HF_TEXT_ENDPOINT") or os.getenv("HF_INFERENCE_ENDPOINT")
     token = os.getenv("HF_API_TOKEN")
 
@@ -50,7 +62,9 @@ def get_image_client() -> Optional["InferenceClient"]:
     if InferenceClient is None:
         return None
 
-    model = _resolve_model_name(os.getenv("HF_IMAGE_MODEL"), os.getenv("IMAGE_MODEL"))
+    model = _resolve_model_name(
+        os.getenv("HF_IMAGE_MODEL"), os.getenv("IMAGE_MODEL"), DEFAULT_IMAGE_MODEL
+    )
     endpoint = os.getenv("HF_IMAGE_ENDPOINT")
     token = os.getenv("HF_API_TOKEN")
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 from collections import Counter
@@ -25,13 +26,22 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from .emailing import send_admin_request_email
-from .generation import generate_response
+from .emailing import send_admin_request_email, send_password_reset_email
+from .generation import generate_response, remote_text
 from .images import generate_images
-from .models import AdminRequest, Attachment, Conversation, Message
+from .models import (
+    AdminRequest,
+    Attachment,
+    Conversation,
+    Message,
+    PasswordResetRequest,
+)
 from .search import perform_web_search
 
 User = get_user_model()
+
+
+logger = logging.getLogger(__name__)
 
 
 def _isoformat(value: datetime | None) -> str | None:
@@ -152,6 +162,37 @@ def _build_dashboard_snapshot(user: User) -> Dict[str, Any]:
     }
 
 
+def _summarize_search_results(query: str, results: List[Any]) -> str:
+    if not results:
+        return "I couldn't reach live results just now. Try refining your search in a moment."
+
+    bullet_points = []
+    for index, item in enumerate(results[:5], start=1):
+        title = getattr(item, "title", "Untitled result")
+        excerpt = getattr(item, "excerpt", "")
+        url = getattr(item, "url", "")
+        bullet_points.append(f"{index}. {title} — {excerpt} ({url})")
+
+    prompt = (
+        "You are GPT-OSS-20B acting as the Web Pulse analyst. Summarise the "
+        "most important insights for the user in two short paragraphs and "
+        "close with an actionable tip. Use natural language, not bullet "
+        "points. Base your answer only on these findings:\n"
+        + "\n".join(bullet_points)
+        + f"\n\nFocus on responding to this query: {query}."
+    )
+
+    completion = remote_text(prompt, max_new_tokens=260, temperature=0.35, top_p=0.9)
+    if completion:
+        return completion.strip()
+
+    fallback_lines = [
+        f"- {getattr(item, 'title', 'Result')} ({getattr(item, 'url', '')})"
+        for item in results[:3]
+    ]
+    return "Here's what I found:\n" + "\n".join(fallback_lines)
+
+
 @require_GET
 def index(request: HttpRequest) -> HttpResponse:
     return render(request, "index.html")
@@ -184,10 +225,20 @@ def register(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"detail": "Username and password are required"}, status=400)
 
     if User.objects.filter(username=username).exists():
-        return JsonResponse({"detail": "Username already taken"}, status=409)
+        return JsonResponse(
+            {
+                "detail": "Username already taken. Try signing in or use the password reset option if you need a new login.",
+            },
+            status=409,
+        )
 
     if email and User.objects.filter(email__iexact=email).exists():
-        return JsonResponse({"detail": "Email already registered"}, status=409)
+        return JsonResponse(
+            {
+                "detail": "Email already registered. Use the password reset flow if you can't remember the password.",
+            },
+            status=409,
+        )
 
     user = User.objects.create_user(username=username, email=email, password=password)
 
@@ -243,7 +294,12 @@ def login(request: HttpRequest) -> JsonResponse:
             )
 
     if user is None:
-        return JsonResponse({"detail": "Invalid credentials"}, status=401)
+        return JsonResponse(
+            {
+                "detail": "Invalid credentials. Reset your password if you've forgotten it.",
+            },
+            status=401,
+        )
 
     auth_login(request, user)
     return JsonResponse({"user": _serialize_user(user)})
@@ -255,6 +311,79 @@ def logout(request: HttpRequest) -> JsonResponse:
     if request.user.is_authenticated:
         auth_logout(request)
     return JsonResponse({"success": True})
+
+
+@csrf_exempt
+@require_POST
+def password_forgot(request: HttpRequest) -> JsonResponse:
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON payload"}, status=400)
+
+    identifier = (payload.get("identifier") or "").strip()
+    if not identifier:
+        return JsonResponse({"detail": "Provide a username or email"}, status=400)
+
+    user = User.objects.filter(Q(username__iexact=identifier) | Q(email__iexact=identifier)).first()
+
+    if user is not None:
+        PasswordResetRequest.objects.filter(user=user, used_at__isnull=True).update(
+            used_at=timezone.now()
+        )
+        reset_request = PasswordResetRequest.create_for_user(user)
+        result = send_password_reset_email(reset_request)
+        if not result.sent:
+            logger.warning("Failed to dispatch password reset email: %s", result.reason)
+
+    return JsonResponse(
+        {
+            "detail": "If the account exists, a reset code has been emailed. Check your inbox for further instructions.",
+        }
+    )
+
+
+@csrf_exempt
+@require_POST
+def password_reset(request: HttpRequest) -> JsonResponse:
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON payload"}, status=400)
+
+    token = (payload.get("token") or "").strip()
+    new_password = payload.get("new_password") or ""
+    confirm_password = payload.get("confirm_password") or new_password
+
+    if not token:
+        return JsonResponse({"detail": "Reset code is required"}, status=400)
+
+    if len(new_password) < 8:
+        return JsonResponse(
+            {"detail": "New password must be at least 8 characters"}, status=400
+        )
+
+    if new_password != confirm_password:
+        return JsonResponse({"detail": "Passwords do not match"}, status=400)
+
+    try:
+        reset_request = PasswordResetRequest.objects.select_related("user").get(token=token)
+    except PasswordResetRequest.DoesNotExist:
+        return JsonResponse({"detail": "Invalid or expired reset code"}, status=404)
+
+    if not reset_request.is_active:
+        return JsonResponse({"detail": "Invalid or expired reset code"}, status=400)
+
+    user = reset_request.user
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+
+    reset_request.mark_used()
+    PasswordResetRequest.objects.filter(user=user).exclude(pk=reset_request.pk).update(
+        used_at=timezone.now()
+    )
+
+    return JsonResponse({"detail": "Password updated. You can sign in with the new password now."})
 
 
 @csrf_exempt
@@ -706,13 +835,15 @@ def tool_web_search(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"detail": "Search query required"}, status=400)
 
     results = perform_web_search(query)
+    summary = _summarize_search_results(query, results)
 
     if not results:
         return JsonResponse(
             {
                 "query": query,
                 "results": [],
-                "provider": "duckduckgo",
+                "summary": summary,
+                "provider": "duckduckgo+gpt-oss-20b",
                 "detail": "No live results available right now",
             }
         )
@@ -729,7 +860,8 @@ def tool_web_search(request: HttpRequest) -> JsonResponse:
                 }
                 for item in results
             ],
-            "provider": "duckduckgo",
+            "summary": summary,
+            "provider": "duckduckgo+gpt-oss-20b",
         }
     )
 
@@ -755,6 +887,7 @@ def tool_generate_images(request: HttpRequest) -> JsonResponse:
     generated = generate_images(prompt, count)
     jobs = []
     for item in generated:
+        provider_label = f"{item.provider}+gpt-oss-20b"
         jobs.append(
             {
                 "id": item.identifier,
@@ -765,7 +898,9 @@ def tool_generate_images(request: HttpRequest) -> JsonResponse:
                 "palette": item.palette,
                 "created_at": item.created_at.isoformat(),
                 "mime_type": item.mime_type,
-                "provider": item.provider,
+                "provider": provider_label,
+                "caption": item.caption,
+                "director_prompt": item.director_prompt,
             }
         )
 

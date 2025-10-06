@@ -22,28 +22,51 @@ _generation_pipeline = None
 _logger = logging.getLogger(__name__)
 
 
-def _generate_via_inference(prompt: str) -> Optional[str]:
+def _generate_via_inference(
+    prompt: str,
+    *,
+    max_new_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+) -> Optional[str]:
     """Use the Hugging Face Inference API when it's configured."""
 
     client = get_text_client()
     if client is None:
         return None
 
-    try:
-        max_new_tokens = int(os.getenv("MAX_NEW_TOKENS", "512"))
-        temperature = float(os.getenv("TEMPERATURE", "0.7"))
-        top_p = float(os.getenv("TOP_P", "0.9"))
-    except ValueError:
-        max_new_tokens = 512
-        temperature = 0.7
-        top_p = 0.9
+    def _int_setting(value: str, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _float_setting(value: str, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    max_tokens = (
+        max_new_tokens
+        if max_new_tokens is not None
+        else _int_setting(os.getenv("MAX_NEW_TOKENS", "512"), 512)
+    )
+    temp_value = (
+        temperature
+        if temperature is not None
+        else _float_setting(os.getenv("TEMPERATURE", "0.7"), 0.7)
+    )
+    top_p_value = (
+        top_p if top_p is not None else _float_setting(os.getenv("TOP_P", "0.9"), 0.9)
+    )
 
     try:
         response = client.text_generation(
             prompt,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
+            max_new_tokens=max_tokens,
+            temperature=temp_value,
+            top_p=top_p_value,
             do_sample=True,
         )
     except Exception as exc:  # pragma: no cover - depends on network
@@ -180,3 +203,20 @@ def generate_response(messages: Iterable[Message]) -> str:
     except Exception as exc:  # pragma: no cover - logging placeholder
         _logger.exception("Generation pipeline failed", exc_info=exc)
         return _fallback_response(history)
+
+
+def remote_text(
+    prompt: str,
+    *,
+    max_new_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+) -> Optional[str]:
+    """Expose direct access to the GPT-OSS inference endpoint."""
+
+    return _generate_via_inference(
+        prompt,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_p=top_p,
+    )

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import secrets
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.db import models
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -86,3 +90,39 @@ class AdminRequest(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - human readable representation
         return f"Admin request for {self.user} ({self.status})"
+
+
+class PasswordResetRequest(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="password_resets"
+    )
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:  # pragma: no cover - human readable representation
+        return f"Password reset for {self.user} ({self.token[:6]}…)"
+
+    @classmethod
+    def create_for_user(cls, user: User) -> "PasswordResetRequest":
+        """Create a fresh reset token with a short-lived expiry."""
+
+        token = secrets.token_urlsafe(48).replace("-", "").replace("_", "")[:64]
+        expires_at = timezone.now() + timedelta(hours=2)
+        return cls.objects.create(user=user, token=token, expires_at=expires_at)
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    @property
+    def is_active(self) -> bool:
+        return self.used_at is None and not self.is_expired
+
+    def mark_used(self) -> None:
+        self.used_at = timezone.now()
+        self.save(update_fields=["used_at"])

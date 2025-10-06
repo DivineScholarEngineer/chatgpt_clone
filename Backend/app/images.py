@@ -4,11 +4,12 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
 from django.conf import settings
 from django.utils import timezone
@@ -19,6 +20,7 @@ try:  # pragma: no cover - optional dependencies
 except ImportError:  # pragma: no cover - optional dependencies
     Image = None  # type: ignore[assignment]
 
+from .generation import remote_text
 from .imageforge import forge_images
 from .inference import get_image_client
 
@@ -34,6 +36,8 @@ class GeneratedImage:
     palette: List[str]
     created_at: datetime
     provider: str
+    caption: str
+    director_prompt: str
 
     @property
     def filename(self) -> str:
@@ -66,7 +70,9 @@ def _extract_palette(image: "Image.Image") -> List[str]:  # pragma: no cover - v
     return palette
 
 
-def _generate_via_huggingface(prompt: str, count: int) -> Iterable[GeneratedImage]:
+def _generate_via_huggingface(
+    director_prompt: str, count: int, caption: str, original_prompt: str
+) -> Iterable[GeneratedImage]:
     client = get_image_client()
     if client is None or Image is None:
         return []
@@ -80,11 +86,11 @@ def _generate_via_huggingface(prompt: str, count: int) -> Iterable[GeneratedImag
     timestamp = timezone.now()
     results: List[GeneratedImage] = []
 
-    for _ in range(count):
+    for index in range(count):
         seed = secrets.token_hex(8)
         try:
             pil_image = client.text_to_image(
-                prompt,
+                f"{director_prompt}, variation {index + 1}",
                 width=width,
                 height=height,
                 guidance_scale=guidance,
@@ -108,16 +114,44 @@ def _generate_via_huggingface(prompt: str, count: int) -> Iterable[GeneratedImag
         results.append(
             GeneratedImage(
                 identifier=seed,
-                prompt=prompt,
+                prompt=original_prompt,
                 relative_path=str(relative_path).replace("\\", "/"),
                 mime_type="image/png",
                 palette=palette,
                 created_at=timestamp,
                 provider="huggingface",
+                caption=caption,
+                director_prompt=director_prompt,
             )
         )
 
     return results
+
+
+def _enhance_prompt(prompt: str) -> Tuple[str, str]:
+    """Use GPT-OSS to craft a rich art direction and caption."""
+
+    trimmed = prompt.strip() or "Untitled concept"
+    instructions = (
+        "You are GPT-OSS-20B acting as an art director. Given the idea below, "
+        "write a single vivid diffusion prompt and a short caption. Respond "
+        "with exactly two lines:\n"
+        "PROMPT: <the expanded diffusion prompt>\n"
+        "CAPTION: <a friendly caption for the gallery card>.\n"
+        f"Idea: {trimmed}"
+    )
+
+    completion = remote_text(instructions, max_new_tokens=220, temperature=0.65, top_p=0.92)
+    if not completion:
+        return trimmed, trimmed
+
+    prompt_match = re.search(r"PROMPT:\s*(.+)", completion, re.IGNORECASE)
+    caption_match = re.search(r"CAPTION:\s*(.+)", completion, re.IGNORECASE)
+
+    expanded_prompt = prompt_match.group(1).strip() if prompt_match else trimmed
+    caption = caption_match.group(1).strip() if caption_match else trimmed
+
+    return expanded_prompt or trimmed, caption or trimmed
 
 
 def generate_images(prompt: str, count: int) -> List[GeneratedImage]:
@@ -126,11 +160,18 @@ def generate_images(prompt: str, count: int) -> List[GeneratedImage]:
     prompt = prompt.strip() or "Untitled concept"
     count = max(1, min(int(count or 1), 8))
 
-    via_hf = list(_generate_via_huggingface(prompt, count))
+    director_prompt, caption = _enhance_prompt(prompt)
+
+    via_hf = list(_generate_via_huggingface(director_prompt, count, caption, prompt))
     if via_hf:
         return via_hf
 
-    placeholders = forge_images(prompt, count)
+    placeholders = forge_images(
+        prompt,
+        count,
+        caption=caption,
+        director_prompt=director_prompt,
+    )
     return [
         GeneratedImage(
             identifier=item.identifier,
@@ -140,6 +181,8 @@ def generate_images(prompt: str, count: int) -> List[GeneratedImage]:
             palette=item.palette,
             created_at=item.created_at,
             provider="placeholder",
+            caption=item.caption,
+            director_prompt=item.director_prompt,
         )
         for item in placeholders
     ]
