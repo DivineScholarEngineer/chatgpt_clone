@@ -160,8 +160,21 @@
               <span>Password</span>
               <input type="password" id="auth-password" autocomplete="current-password" required />
             </label>
+            <label id="auth-confirm-wrapper" class="hidden">
+              <span>Confirm password</span>
+              <input
+                type="password"
+                id="auth-confirm-password"
+                autocomplete="new-password"
+              />
+            </label>
+            <p id="auth-help-text" class="auth-help-text hidden">
+              Enter your username or email along with a new password to reset your
+              access.
+            </p>
             <button type="submit" class="btn primary" id="auth-submit">Continue</button>
             <button type="button" class="btn secondary" id="auth-toggle-mode">Switch to register</button>
+            <button type="button" class="btn link" id="auth-forgot-password">Forgot password?</button>
           </form>
         </div>
       </div>

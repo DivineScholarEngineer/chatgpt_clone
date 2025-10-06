@@ -244,6 +244,68 @@ def login(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
+def reset_password(request: HttpRequest) -> JsonResponse:
+    try:
+        payload = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON payload"}, status=400)
+
+    identifier = (
+        payload.get("identifier")
+        or payload.get("username")
+        or payload.get("email")
+        or ""
+    ).strip()
+    new_password = (
+        payload.get("new_password")
+        or payload.get("password")
+        or ""
+    )
+    confirm_password = payload.get("confirm_password") or payload.get(
+        "confirmPassword"
+    )
+
+    if not identifier:
+        return JsonResponse(
+            {"detail": "Username or email is required"}, status=400
+        )
+
+    if not new_password:
+        return JsonResponse(
+            {"detail": "New password is required"}, status=400
+        )
+
+    if confirm_password is None:
+        return JsonResponse(
+            {"detail": "Confirm password is required"}, status=400
+        )
+
+    if new_password != confirm_password:
+        return JsonResponse({"detail": "Passwords do not match"}, status=400)
+
+    if len(new_password) < 8:
+        return JsonResponse(
+            {"detail": "Password must be at least 8 characters"}, status=400
+        )
+
+    user = None
+    if "@" in identifier:
+        user = User.objects.filter(email__iexact=identifier).first()
+
+    if user is None:
+        user = User.objects.filter(username=identifier).first()
+
+    if user is None:
+        return JsonResponse({"detail": "Account not found"}, status=404)
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+
+    return JsonResponse({"success": True, "detail": "Password updated"})
+
+
+@csrf_exempt
+@require_POST
 def logout(request: HttpRequest) -> JsonResponse:
     if request.user.is_authenticated:
         auth_logout(request)
