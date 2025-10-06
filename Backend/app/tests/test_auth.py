@@ -86,3 +86,49 @@ class AuthViewTests(TestCase):
 
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["detail"], "Invalid credentials")
+
+    def test_reset_password_updates_existing_user(self) -> None:
+        user = User.objects.create_user(
+            username="erin", email="erin@example.com", password="oldsecret"
+        )
+
+        payload = {
+            "email": "erin@example.com",
+            "new_password": "freshpass1",
+            "confirm_password": "freshpass1",
+        }
+        response = self.client.post(
+            reverse("reset_password"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json().get("success"))
+
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("freshpass1"))
+
+    def test_reset_password_requires_valid_identifier(self) -> None:
+        payload = {"new_password": "anotherpass", "confirm_password": "anotherpass"}
+        response = self.client.post(
+            reverse("reset_password"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Username or email is required")
+
+    def test_reset_password_requires_confirmation(self) -> None:
+        User.objects.create_user(username="frank", password="initialpass")
+
+        payload = {"username": "frank", "new_password": "updatedpass"}
+        response = self.client.post(
+            reverse("reset_password"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Confirm password is required")

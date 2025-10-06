@@ -26,6 +26,10 @@ const elements = {
   authPassword: document.getElementById("auth-password"),
   authSubmit: document.getElementById("auth-submit"),
   authToggleMode: document.getElementById("auth-toggle-mode"),
+  authConfirmWrapper: document.getElementById("auth-confirm-wrapper"),
+  authConfirmPassword: document.getElementById("auth-confirm-password"),
+  authForgotPassword: document.getElementById("auth-forgot-password"),
+  authHelpText: document.getElementById("auth-help-text"),
   themeToggle: document.getElementById("theme-toggle"),
   insightsBar: document.getElementById("insights-bar"),
   composerStatus: document.getElementById("composer-status"),
@@ -438,17 +442,95 @@ function toggleAuthDialog(open) {
   elements.authDialog.classList.toggle("hidden", !open);
   if (open) {
     elements.authUsername.focus();
+  } else {
+    if (elements.authForm) {
+      elements.authForm.reset();
+    }
+    updateAuthMode("login");
   }
 }
 
 function updateAuthMode(mode) {
   state.authMode = mode;
   const isRegister = mode === "register";
-  elements.authTitle.textContent = isRegister ? "Register" : "Sign in";
+  const isReset = mode === "reset";
+
+  const usernameLabel = elements.authUsername?.parentElement?.querySelector("span");
+  const emailWrapper = elements.authEmail?.parentElement;
+  const emailLabel = emailWrapper?.querySelector("span");
+  const passwordLabel = elements.authPassword?.parentElement?.querySelector("span");
+
+  elements.authTitle.textContent = isRegister
+    ? "Register"
+    : isReset
+    ? "Reset password"
+    : "Sign in";
+
   elements.authToggleMode.textContent = isRegister
     ? "Switch to sign in"
+    : isReset
+    ? "Back to sign in"
     : "Switch to register";
-  elements.authEmail.parentElement.classList.toggle("hidden", !isRegister);
+
+  if (emailWrapper) {
+    emailWrapper.classList.toggle("hidden", !(isRegister || isReset));
+  }
+
+  if (elements.authConfirmWrapper) {
+    elements.authConfirmWrapper.classList.toggle(
+      "hidden",
+      !(isRegister || isReset)
+    );
+  }
+
+  if (elements.authForgotPassword) {
+    elements.authForgotPassword.classList.toggle("hidden", mode !== "login");
+  }
+
+  if (elements.authHelpText) {
+    elements.authHelpText.classList.toggle("hidden", !isReset);
+  }
+
+  if (usernameLabel) {
+    usernameLabel.textContent = isReset ? "Username (optional)" : "Username";
+  }
+
+  if (emailLabel) {
+    emailLabel.textContent = isReset ? "Email (optional)" : "Email";
+  }
+
+  if (passwordLabel) {
+    passwordLabel.textContent = isReset ? "New password" : "Password";
+  }
+
+  elements.authUsername.required = !isReset;
+  elements.authPassword.required = true;
+  elements.authEmail.required = false;
+  if (elements.authConfirmPassword) {
+    elements.authConfirmPassword.required = isRegister || isReset;
+    if (isRegister || isReset) {
+      elements.authConfirmPassword.value = "";
+    }
+  }
+
+  elements.authPassword.autocomplete = isReset || isRegister ? "new-password" : "current-password";
+
+  if (!isRegister && !isReset && elements.authConfirmPassword) {
+    elements.authConfirmPassword.value = "";
+  }
+
+  if (isReset && elements.authHelpText) {
+    elements.authHelpText.textContent =
+      "Enter your username or email along with a new password to reset your access.";
+  }
+
+  if (elements.authSubmit) {
+    elements.authSubmit.textContent = isReset
+      ? "Update password"
+      : isRegister
+      ? "Create account"
+      : "Continue";
+  }
 }
 
 async function handleAuthSubmit(event) {
@@ -456,10 +538,66 @@ async function handleAuthSubmit(event) {
   const username = elements.authUsername.value.trim();
   const email = elements.authEmail.value.trim();
   const password = elements.authPassword.value;
+  const confirmPassword = elements.authConfirmPassword
+    ? elements.authConfirmPassword.value
+    : "";
+
+  if (state.authMode === "reset") {
+    if (!username && !email) {
+      showToast("Provide your username or email to reset the password");
+      return;
+    }
+    if (!password) {
+      showToast("New password is required");
+      return;
+    }
+    if (!confirmPassword) {
+      showToast("Confirm your new password");
+      return;
+    }
+    if (password !== confirmPassword) {
+      showToast("Passwords do not match");
+      return;
+    }
+
+    try {
+      const payload = { new_password: password };
+      if (username) payload.username = username;
+      if (email) payload.email = email;
+      if (confirmPassword) payload.confirm_password = confirmPassword;
+
+      await fetchJSON("/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      showToast("Password updated. You can now sign in.");
+      const preservedIdentifier = username || email;
+      if (elements.authForm) {
+        elements.authForm.reset();
+      }
+      updateAuthMode("login");
+      if (preservedIdentifier) {
+        elements.authUsername.value = preservedIdentifier;
+      }
+      elements.authPassword.value = "";
+      elements.authPassword.focus();
+    } catch (error) {
+      showToast(error.message);
+    }
+    return;
+  }
 
   if (!username || !password) {
     showToast("Username and password are required");
     return;
+  }
+
+  if (state.authMode === "register") {
+    if (!confirmPassword || password !== confirmPassword) {
+      showToast("Passwords do not match");
+      return;
+    }
   }
 
   try {
@@ -468,6 +606,11 @@ async function handleAuthSubmit(event) {
     if (state.authMode === "register" && email) {
       payload.email = email;
     }
+    if (state.authMode === "register" && confirmPassword) {
+      payload.confirm_password = confirmPassword;
+    }
+
+    const mode = state.authMode;
 
     await fetchJSON(endpoint, {
       method: "POST",
@@ -477,7 +620,7 @@ async function handleAuthSubmit(event) {
     toggleAuthDialog(false);
     await refreshSession();
     await fetchConversations();
-    showToast(state.authMode === "register" ? "Account created" : "Welcome back!");
+    showToast(mode === "register" ? "Account created" : "Welcome back!");
   } catch (error) {
     showToast(error.message);
   }
@@ -774,6 +917,10 @@ function setupEventListeners() {
         signOut();
       }
     } else {
+      if (elements.authForm) {
+        elements.authForm.reset();
+      }
+      updateAuthMode("login");
       toggleAuthDialog(true);
     }
   });
@@ -781,8 +928,23 @@ function setupEventListeners() {
   elements.closeAuth.addEventListener("click", () => toggleAuthDialog(false));
   elements.authForm.addEventListener("submit", handleAuthSubmit);
   elements.authToggleMode.addEventListener("click", () => {
-    updateAuthMode(state.authMode === "login" ? "register" : "login");
+    if (state.authMode === "login") {
+      updateAuthMode("register");
+    } else {
+      updateAuthMode("login");
+    }
   });
+  if (elements.authForgotPassword) {
+    elements.authForgotPassword.addEventListener("click", () => {
+      const currentIdentifier = elements.authUsername.value.trim();
+      updateAuthMode("reset");
+      if (currentIdentifier.includes("@")) {
+        elements.authEmail.value = currentIdentifier;
+        elements.authUsername.value = "";
+      }
+      elements.authUsername.focus();
+    });
+  }
 
   elements.themeToggle.addEventListener("click", () => {
     const isDark = document.body.classList.contains("theme-dark");

@@ -414,6 +414,20 @@ textarea:focus {
   border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
+.btn.link {
+  background: none;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  color: var(--accent);
+  justify-content: flex-start;
+}
+
+.btn.link:hover:not(:disabled) {
+  transform: none;
+  text-decoration: underline;
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -499,6 +513,12 @@ textarea:focus {
   border: 1px solid var(--border);
   padding: 0.65rem 0.75rem;
   background: rgba(15, 23, 42, 0.4);
+}
+
+.auth-help-text {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0;
 }
 
 .tab-list {
